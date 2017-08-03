@@ -31,9 +31,11 @@ def is_redirection(souped_page):
     script_nodes = souped_page.find_all('script', language='JavaScript')
     return len(script_nodes) > 0
 
+
 def get_redirection_url(souped_page):
     redir_soup = BeautifulSoup(souped_page.find('noscript').string, 'html5lib')
     return redir_soup.a['href'] if redir_soup.a else souped_page
+
 
 def process_jobs(job_postings, known_ids):
     new_jobs = []
@@ -68,6 +70,7 @@ def process_jobs(job_postings, known_ids):
                             })
     return new_jobs
 
+
 def send_email(new_jobs):
     msg = EmailMessage()
     msg['Subject'] = "{} nouvelles offre(s) sur JobUp !".format(len(new_jobs))
@@ -81,39 +84,54 @@ def send_email(new_jobs):
                                                      job['job_url'])
         text.append(job_text)
     msg.set_content("**************\n".join(text))
-    with smtplib.SMTP('smtp.gmail.com', 587) as server:
-        server.starttls()
-        server.login(GMAIL_ADDRESS, GMAIL_PWD)
-        server.send_message(msg)
-        log.info("E-mail sent!")
+    try:
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(GMAIL_ADDRESS, GMAIL_PWD)
+            server.send_message(msg)
+            log.info("E-mail sent!")
+    except Exception as e:
+        log.error("Error: could not send email at this time:\n" + str(e))
+
+
+def poll_jobs():
+    """Poll JobUp for most recent jobs, parse them & send an email if need be.
+
+    The delay is built into this function so we cannot accidentally spam jobup with requests
+    with repeated calls to poll_jobs
+    """
+    global ALL_JOBS
+
+    try:
+        log.info("Checking job postings...")
+
+        html_contents = requests.get(JOBUP_URL)
+        souped = BeautifulSoup(html_contents.content, 'html5lib')
+        id_regex = re.compile("result_posting_[1-9]{7}")
+        job_postings = souped.find_all(id=id_regex)
+
+        known_ids = [item['job_id'] for item in ALL_JOBS]
+
+        new_jobs = process_jobs(job_postings, known_ids)
+        ALL_JOBS = new_jobs + ALL_JOBS
+
+        if len(new_jobs) > 0:
+            log.info("Preparing email")
+            send_email(new_jobs)
+
+        # Wait for the appropriate time before fetching again
+        delay = FREQ + random.randint(0, 10)
+        log.info("Found {} new jobs. Checking again in {} minutes {} seconds".format(
+            len(new_jobs),
+            delay // 60,
+            delay % 60)
+        )
+        time.sleep(delay)
+    except KeyboardInterrupt:
+        log.info("Execution interrupted by user. Exiting...")
+        sys.exit()
 
 
 if __name__ == '__main__':
     while(True):
-        try:
-            log.info("Checking job postings...")
-
-            html_contents = requests.get(JOBUP_URL)
-            souped = BeautifulSoup(html_contents.content, 'html5lib')
-            id_regex = re.compile("result_posting_[1-9]{7}")
-            job_postings = souped.find_all(id=id_regex)
-
-            known_ids = [item['job_id'] for item in ALL_JOBS]
-
-            new_jobs = process_jobs(job_postings, known_ids)
-            ALL_JOBS = new_jobs + ALL_JOBS
-
-            if len(new_jobs) > 0:
-                send_email(new_jobs)
-
-            # Wait for the appropriate time before fetching again
-            delay = FREQ + random.randint(0, 10)
-            log.info("Found {} new jobs. Checking again in {} minutes {} seconds".format(
-                len(new_jobs),
-                delay // 60,
-                delay % 60)
-            )
-            time.sleep(delay)
-        except KeyboardInterrupt:
-            log.info("Execution interrupted by user. Exiting...")
-            sys.exit()
+        poll_jobs()
