@@ -5,6 +5,7 @@ import re
 import time
 import random
 import logging
+import sys
 
 import smtplib
 from email.message import EmailMessage
@@ -53,7 +54,7 @@ def process_jobs(job_postings, known_ids):
             elif souped_details.find('div', id='description'):
                 job_desc = "\n".join(souped_details.find('div', id='description').stripped_strings)
             else:
-                job_desc = "Description could not be retrieved from {}".format(job_url)
+                job_desc = "Description could not be retrieved.".format(job_url)
 
             log.info("{} - {}:\n{}\n**********".format(job_company,
                                                        job_title,
@@ -69,7 +70,7 @@ def process_jobs(job_postings, known_ids):
 
 def send_email(new_jobs):
     msg = EmailMessage()
-    msg['Subject'] = "{} nouvelles offres sur JobUp !".format(len(new_jobs))
+    msg['Subject'] = "{} nouvelles offre(s) sur JobUp !".format(len(new_jobs))
     msg['From'] = Address(EMAIL_FROM, GMAIL_ADDRESS)
     msg['To'] = Address(EMAIL_TO, GMAIL_ADDRESS)
     text = []
@@ -84,29 +85,35 @@ def send_email(new_jobs):
         server.starttls()
         server.login(GMAIL_ADDRESS, GMAIL_PWD)
         server.send_message(msg)
+        log.info("E-mail sent!")
+
 
 if __name__ == '__main__':
     while(True):
-        log.info("Checking job postings...")
+        try:
+            log.info("Checking job postings...")
 
-        html_contents = requests.get(JOBUP_URL)
-        souped = BeautifulSoup(html_contents.content, 'html5lib')
-        id_regex = re.compile("result_posting_[1-9]{7}")
-        job_postings = souped.find_all(id=id_regex)
+            html_contents = requests.get(JOBUP_URL)
+            souped = BeautifulSoup(html_contents.content, 'html5lib')
+            id_regex = re.compile("result_posting_[1-9]{7}")
+            job_postings = souped.find_all(id=id_regex)
 
-        known_ids = [item['job_id'] for item in ALL_JOBS]
+            known_ids = [item['job_id'] for item in ALL_JOBS]
 
-        new_jobs = process_jobs(job_postings, known_ids)
-        ALL_JOBS = new_jobs + ALL_JOBS
+            new_jobs = process_jobs(job_postings, known_ids)
+            ALL_JOBS = new_jobs + ALL_JOBS
 
-        if len(new_jobs) > 0:
-            send_email(new_jobs)
+            if len(new_jobs) > 0:
+                send_email(new_jobs)
 
-        # Wait for the appropriate time before fetching again
-        delay = FREQ + random.randint(0, 10)
-        log.info("Found {} new jobs. Checking again in {} minutes {} seconds".format(
-            len(new_jobs),
-            delay // 60,
-            delay % 60)
-        )
-        time.sleep(delay)
+            # Wait for the appropriate time before fetching again
+            delay = FREQ + random.randint(0, 10)
+            log.info("Found {} new jobs. Checking again in {} minutes {} seconds".format(
+                len(new_jobs),
+                delay // 60,
+                delay % 60)
+            )
+            time.sleep(delay)
+        except KeyboardInterrupt:
+            log.info("Execution interrupted by user. Exiting...")
+            sys.exit()
