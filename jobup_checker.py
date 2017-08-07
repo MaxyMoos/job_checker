@@ -22,7 +22,7 @@ ALL_JOBS = []
 # Logging config
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%d/%m/%Y %I:%M:%S %p")
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
+log.setLevel(logging.DEBUG)
 
 random.seed()
 
@@ -94,6 +94,52 @@ def send_email(new_jobs):
         log.error("Error: could not send email at this time:\n" + str(e))
 
 
+def send_html_email(new_jobs):
+    """Send a HTML version of the new jobs email"""
+    msg = EmailMessage()
+    msg['Subject'] = "{} nouvelles offre(s) sur JobUp !".format(len(new_jobs))
+    msg['From'] = Address(EMAIL_FROM, GMAIL_ADDRESS)
+    msg['To'] = Address(EMAIL_TO, GMAIL_ADDRESS)
+
+    log.debug("Building email body")
+    email_plain = []
+    email_html = ["<html><head></head><body>"]
+    for job in new_jobs:
+        job_plain = "{} - {}:\n\n{}\n{}\n\n".format(job['job_title'],
+                                                     job['job_company'],
+                                                     job['job_desc'],
+                                                     job['job_url'])
+        job_html = """\
+            <p><b>{} - {}</b></p>
+            <p>{}</p>
+            <p><a href="{}">Lien vers l'annonce</a></p>
+            ********************<br/><br/>
+            """.format(job['job_title'],
+                       job['job_company'],
+                       job['job_desc'],
+                       job['job_url'])
+        email_plain.append(job_plain)
+        email_html.append(job_html)
+    email_plain = "********************\n".join(email_plain)
+    email_html = "".join(email_html)
+
+    msg.set_content(email_plain)
+    msg.add_alternative(email_html, subtype='html')
+
+    try:
+        log.debug("Initializing SMTP connection to GMail servers")
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            log.debug("Connecting to GMail servers using TLS")
+            server.starttls()
+            log.debug("Sending GMail credentials")
+            server.login(GMAIL_ADDRESS, GMAIL_PWD)
+            log.debug("Sending email")
+            server.send_message(msg)
+            log.info("HTML e-mail sent!")
+    except Exception as e:
+        log.error("Error: could not send email at this time:\n" + str(e))
+
+
 def poll_jobs():
     """Poll JobUp for most recent jobs, parse them & send an email if need be.
 
@@ -117,7 +163,7 @@ def poll_jobs():
 
         if len(new_jobs) > 0:
             log.info("Preparing email")
-            send_email(new_jobs)
+            send_html_email(new_jobs)
 
         # Wait for the appropriate time before fetching again
         delay = FREQ + random.randint(0, 10)
