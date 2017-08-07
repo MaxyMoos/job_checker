@@ -7,11 +7,13 @@ import random
 import logging
 import sys
 
+import socket
 import smtplib
 from email.message import EmailMessage
 from email.headerregistry import Address
 
 from secrets import GMAIL_ADDRESS, GMAIL_PWD, EMAIL_FROM, EMAIL_TO
+from shell_colors import ANSIColors
 
 
 # The URL of job postings to check
@@ -71,29 +73,6 @@ def process_jobs(job_postings, known_ids):
     return new_jobs
 
 
-def send_email(new_jobs):
-    msg = EmailMessage()
-    msg['Subject'] = "{} nouvelles offre(s) sur JobUp !".format(len(new_jobs))
-    msg['From'] = Address(EMAIL_FROM, GMAIL_ADDRESS)
-    msg['To'] = Address(EMAIL_TO, GMAIL_ADDRESS)
-    text = []
-    for job in new_jobs:
-        job_text = "*{} - {}*:\n\n{}\n{}\n\n".format(job['job_title'],
-                                                     job['job_company'],
-                                                     job['job_desc'],
-                                                     job['job_url'])
-        text.append(job_text)
-    msg.set_content("**************\n".join(text))
-    try:
-        with smtplib.SMTP('smtp.gmail.com', 587) as server:
-            server.starttls()
-            server.login(GMAIL_ADDRESS, GMAIL_PWD)
-            server.send_message(msg)
-            log.info("E-mail sent!")
-    except Exception as e:
-        log.error("Error: could not send email at this time:\n" + str(e))
-
-
 def send_html_email(new_jobs):
     """Send a HTML version of the new jobs email"""
     msg = EmailMessage()
@@ -128,7 +107,7 @@ def send_html_email(new_jobs):
 
     try:
         log.debug("Initializing SMTP connection to GMail servers")
-        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+        with smtplib.SMTP('smtp.gmail.com', 587, timeout=10) as server:
             log.debug("Connecting to GMail servers using TLS")
             server.starttls()
             log.debug("Sending GMail credentials")
@@ -136,8 +115,10 @@ def send_html_email(new_jobs):
             log.debug("Sending email")
             server.send_message(msg)
             log.info("HTML e-mail sent!")
+    except socket.timeout:
+        log.error(ANSIColors.wrap("Reached timeout of 10s while connecting to GMail servers!", ANSIColors.FAIL))
     except Exception as e:
-        log.error("Error: could not send email at this time:\n" + str(e))
+        log.error(ANSIColors.wrap("Error: could not send email at this time:\n" + str(e), ANSIColors.FAIL))
 
 
 def poll_jobs():
